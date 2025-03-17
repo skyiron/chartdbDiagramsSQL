@@ -104,9 +104,13 @@ export const TableDBML: React.FC<TableDBMLProps> = ({ filteredTables }) => {
     const [isDirty, setIsDirty] = useState(false);
     const monacoInstance = useMonaco();
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+    const applyButtonRef = useRef<HTMLButtonElement>(null);
 
     // Local storage key for auto-saving DBML content
     const dbmlStorageKey = `chartdb_dbml_edit_${currentDiagram.id}`;
+
+    // Keep track of the original generated DBML for comparison
+    const [originalDbmlContent, setOriginalDbmlContent] = useState<string>('');
 
     // Generate initial DBML from the diagram
     const generateDBML = useMemo(() => {
@@ -180,14 +184,18 @@ export const TableDBML: React.FC<TableDBMLProps> = ({ filteredTables }) => {
                 variant: 'default',
             });
         } else {
-            setDbmlContent(generateDBML);
+            const newContent = generateDBML;
+            setDbmlContent(newContent);
+            setOriginalDbmlContent(newContent); // Store original content
         }
     }, [generateDBML, dbmlStorageKey, toast]);
 
     // Update the editor content when the diagram changes, but only if not dirty
     useEffect(() => {
         if (!isDirty) {
-            setDbmlContent(generateDBML);
+            const newContent = generateDBML;
+            setDbmlContent(newContent);
+            setOriginalDbmlContent(newContent); // Update original content
             // Clear any saved content when we regenerate
             localStorage.removeItem(dbmlStorageKey);
         }
@@ -245,49 +253,19 @@ export const TableDBML: React.FC<TableDBMLProps> = ({ filteredTables }) => {
     const handleDBMLChange = useCallback(
         (value: string | undefined) => {
             if (value !== undefined) {
-                setDbmlContent(value);
-                setIsDirty(true);
-                validateDBML(value);
+                const contentChanged = value !== dbmlContent;
+                console.log(`DBML DEBUG: Content changed: ${contentChanged}`);
+
+                if (contentChanged) {
+                    setDbmlContent(value);
+                    setIsDirty(true);
+                    console.log('DBML DEBUG: Setting isDirty to true');
+                    validateDBML(value);
+                }
             }
         },
-        [validateDBML]
+        [validateDBML, dbmlContent]
     );
-
-    // Handle editor reference
-    const handleEditorDidMount = useCallback(
-        (editor: monaco.editor.IStandaloneCodeEditor) => {
-            editorRef.current = editor;
-        },
-        []
-    );
-
-    // Set error markers in editor
-    useEffect(() => {
-        if (monacoInstance && editorRef.current) {
-            if (dbmlError) {
-                monacoInstance.editor.setModelMarkers(
-                    editorRef.current.getModel()!,
-                    'dbml-validator',
-                    [
-                        {
-                            startLineNumber: dbmlError.line,
-                            startColumn: dbmlError.column,
-                            endLineNumber: dbmlError.line,
-                            endColumn: dbmlError.column + 1,
-                            message: dbmlError.message,
-                            severity: monaco.MarkerSeverity.Error,
-                        },
-                    ]
-                );
-            } else {
-                monacoInstance.editor.setModelMarkers(
-                    editorRef.current.getModel()!,
-                    'dbml-validator',
-                    []
-                );
-            }
-        }
-    }, [dbmlError, monacoInstance]);
 
     // Apply the DBML changes to the diagram
     const applyDBMLChanges = useCallback(async () => {
@@ -963,6 +941,84 @@ export const TableDBML: React.FC<TableDBMLProps> = ({ filteredTables }) => {
         toast,
     ]);
 
+    // Handle editor reference
+    const handleEditorDidMount = useCallback(
+        (editor: monaco.editor.IStandaloneCodeEditor) => {
+            editorRef.current = editor;
+
+            // This is more reliable than the onChange prop for detecting user edits
+            editor.onDidChangeModelContent(() => {
+                const currentContent = editor.getValue();
+                // Compare with original content to determine if it's changed
+                if (currentContent !== originalDbmlContent) {
+                    console.log('DBML DEBUG: Content changed from original');
+                    setIsDirty(true);
+                }
+            });
+
+            // Add keyboard shortcut for applying changes (Cmd+Enter or Ctrl+Enter)
+            editor.addCommand(
+                // Monaco key codes for Cmd+Enter or Ctrl+Enter
+                monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
+                () => {
+                    console.log(
+                        `DBML DEBUG: Cmd+Enter pressed, isDirty=${isDirty}, hasError=${!!dbmlError}`
+                    );
+
+                    // Simply click the Apply Changes button if it's available and not disabled
+                    if (isDirty && !dbmlError && applyButtonRef.current) {
+                        console.log(
+                            'DBML DEBUG: Clicking Apply Changes button via keyboard shortcut'
+                        );
+                        applyButtonRef.current.click();
+                    } else if (dbmlError) {
+                        toast({
+                            title: 'DBML Error',
+                            description:
+                                'Please fix errors before applying changes',
+                            variant: 'destructive',
+                        });
+                    } else if (!isDirty) {
+                        toast({
+                            title: 'No Changes',
+                            description: 'There are no changes to apply',
+                            variant: 'default',
+                        });
+                    }
+                }
+            );
+        },
+        [isDirty, dbmlError, toast, originalDbmlContent]
+    );
+
+    // Set error markers in editor - add this back
+    useEffect(() => {
+        if (monacoInstance && editorRef.current) {
+            if (dbmlError) {
+                monacoInstance.editor.setModelMarkers(
+                    editorRef.current.getModel()!,
+                    'dbml-validator',
+                    [
+                        {
+                            startLineNumber: dbmlError.line,
+                            startColumn: dbmlError.column,
+                            endLineNumber: dbmlError.line,
+                            endColumn: dbmlError.column + 1,
+                            message: dbmlError.message,
+                            severity: monaco.MarkerSeverity.Error,
+                        },
+                    ]
+                );
+            } else {
+                monacoInstance.editor.setModelMarkers(
+                    editorRef.current.getModel()!,
+                    'dbml-validator',
+                    []
+                );
+            }
+        }
+    }, [dbmlError, monacoInstance]);
+
     // Handle discard changes
     const handleDiscardChanges = useCallback(() => {
         setDbmlContent(generateDBML);
@@ -976,7 +1032,8 @@ export const TableDBML: React.FC<TableDBMLProps> = ({ filteredTables }) => {
             <div className="mb-2 rounded bg-blue-100 p-2 text-sm text-blue-700 dark:bg-blue-900/20 dark:text-blue-300">
                 <strong>Interactive DBML Editor</strong>: Edit your diagram
                 directly using DBML syntax. Changes won't be applied until you
-                click "Apply Changes".
+                click "Apply Changes" or press <kbd>Cmd+Enter</kbd> (
+                <kbd>Ctrl+Enter</kbd> on Windows).
                 {isDirty && (
                     <div className="mt-1">
                         Your changes are being auto-saved in case you navigate
@@ -1018,6 +1075,7 @@ export const TableDBML: React.FC<TableDBMLProps> = ({ filteredTables }) => {
                         Discard Changes
                     </Button>
                     <Button
+                        ref={applyButtonRef}
                         variant="default"
                         onClick={applyDBMLChanges}
                         disabled={!!dbmlError}
