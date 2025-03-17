@@ -391,6 +391,40 @@ export const TableDBML: React.FC<TableDBMLProps> = ({ filteredTables }) => {
                 importedDiagram.relationships?.length || 0
             );
 
+            // Create a mapping of relationships in the imported DBML by their source and target tables/fields
+            const importedRelationshipMap = new Map<string, boolean>();
+            importedDiagram.relationships?.forEach((rel) => {
+                const importedSourceTable = importedDiagram.tables?.find(
+                    (t) => t.id === rel.sourceTableId
+                );
+                const importedTargetTable = importedDiagram.tables?.find(
+                    (t) => t.id === rel.targetTableId
+                );
+
+                if (importedSourceTable && importedTargetTable) {
+                    const importedSourceField = importedSourceTable.fields.find(
+                        (f) => f.id === rel.sourceFieldId
+                    );
+                    const importedTargetField = importedTargetTable.fields.find(
+                        (f) => f.id === rel.targetFieldId
+                    );
+
+                    if (importedSourceField && importedTargetField) {
+                        // Create a unique key for this relationship based on table and field names
+                        const key = `${importedSourceTable.name}.${importedSourceField.name}:${importedTargetTable.name}.${importedTargetField.name}`;
+                        importedRelationshipMap.set(key, true);
+
+                        // Also add the reverse direction as relationships can be defined in either direction
+                        const reverseKey = `${importedTargetTable.name}.${importedTargetField.name}:${importedSourceTable.name}.${importedSourceField.name}`;
+                        importedRelationshipMap.set(reverseKey, true);
+                    }
+                }
+            });
+
+            console.log(
+                `DBML DEBUG: Created map of ${importedRelationshipMap.size} imported relationship signatures`
+            );
+
             const relationshipsToRemove =
                 currentDiagram.relationships?.filter((rel) => {
                     // Remove relationships connected to tables that will be removed
@@ -405,6 +439,42 @@ export const TableDBML: React.FC<TableDBMLProps> = ({ filteredTables }) => {
                             `DBML DEBUG: Relationship ${rel.id} marked for removal - connected to removed table`
                         );
                         return true;
+                    }
+
+                    // Check if this relationship exists in the imported DBML
+                    const currentSourceTable = currentDiagram.tables?.find(
+                        (t) => t.id === rel.sourceTableId
+                    );
+                    const currentTargetTable = currentDiagram.tables?.find(
+                        (t) => t.id === rel.targetTableId
+                    );
+
+                    if (currentSourceTable && currentTargetTable) {
+                        const currentSourceField =
+                            currentSourceTable.fields.find(
+                                (f) => f.id === rel.sourceFieldId
+                            );
+                        const currentTargetField =
+                            currentTargetTable.fields.find(
+                                (f) => f.id === rel.targetFieldId
+                            );
+
+                        if (currentSourceField && currentTargetField) {
+                            // Create a key to look up in our map of imported relationships
+                            const relKey = `${currentSourceTable.name}.${currentSourceField.name}:${currentTargetTable.name}.${currentTargetField.name}`;
+                            const relReverseKey = `${currentTargetTable.name}.${currentTargetField.name}:${currentSourceTable.name}.${currentSourceField.name}`;
+
+                            // If this relationship doesn't exist in the imported DBML, mark it for removal
+                            if (
+                                !importedRelationshipMap.has(relKey) &&
+                                !importedRelationshipMap.has(relReverseKey)
+                            ) {
+                                console.log(
+                                    `DBML DEBUG: Relationship ${rel.id} marked for removal - deleted from DBML`
+                                );
+                                return true;
+                            }
+                        }
                     }
 
                     // Check if the specific fields involved in the relationship have changed in the updated tables
@@ -790,9 +860,86 @@ export const TableDBML: React.FC<TableDBMLProps> = ({ filteredTables }) => {
             // Update the DBML content with the regenerated version that includes relationships
             setDbmlContent(updatedDBML);
 
+            // Count tables that were truly modified vs just preserved (same structure)
+            // We need to check if any fields actually changed in the "updated" tables
+            const tablesKeptUnchanged = tablesToUpdate.filter(
+                (updatedTable) => {
+                    const originalTable = currentDiagram.tables?.find(
+                        (t) => t.id === updatedTable.id
+                    );
+                    if (!originalTable) return false;
+
+                    // Check if fields are the same (both count and content)
+                    if (
+                        originalTable.fields.length !==
+                        updatedTable.fields.length
+                    )
+                        return false;
+
+                    // Check if all fields are the same (by name and type)
+                    const allFieldsSame = originalTable.fields.every(
+                        (originalField) => {
+                            const updatedField = updatedTable.fields.find(
+                                (f) => f.id === originalField.id
+                            );
+                            if (!updatedField) return false;
+
+                            // Check if field properties changed (only compare the meaningful properties)
+                            return (
+                                originalField.name === updatedField.name &&
+                                originalField.type === updatedField.type &&
+                                originalField.primaryKey ===
+                                    updatedField.primaryKey
+                            );
+                        }
+                    );
+
+                    return allFieldsSame;
+                }
+            );
+
+            // Truly updated tables are those that were "updated" but had actual changes
+            const tablesActuallyChanged =
+                tablesToUpdate.length - tablesKeptUnchanged.length;
+
+            // Create a description message based on what actually changed
+            let description;
+            if (
+                tablesToAdd.length === 0 &&
+                tablesActuallyChanged === 0 &&
+                tablesToRemove.length === 0
+            ) {
+                description = 'Nothing changed in the diagram.';
+            } else {
+                // Build parts of the message for each operation
+                const parts = [];
+                if (tablesToAdd.length > 0) {
+                    parts.push(
+                        `${tablesToAdd.length} table${tablesToAdd.length === 1 ? '' : 's'} added`
+                    );
+                }
+                if (tablesActuallyChanged > 0) {
+                    parts.push(
+                        `${tablesActuallyChanged} table${tablesActuallyChanged === 1 ? '' : 's'} updated`
+                    );
+                }
+                if (tablesToRemove.length > 0) {
+                    parts.push(
+                        `${tablesToRemove.length} table${tablesToRemove.length === 1 ? '' : 's'} removed`
+                    );
+                }
+                if (tablesKeptUnchanged.length > 0) {
+                    parts.push(
+                        `${tablesKeptUnchanged.length} table${tablesKeptUnchanged.length === 1 ? '' : 's'} unchanged`
+                    );
+                }
+
+                description = `The diagram has been updated: ${parts.join(', ')}`;
+            }
+
             toast({
                 title: 'DBML Applied',
-                description: `The diagram has been updated: ${tablesToAdd.length} tables added, ${tablesToUpdate.length} tables updated, ${tablesToRemove.length} tables removed`,
+                description,
                 variant: 'default',
             });
         } catch (e) {
