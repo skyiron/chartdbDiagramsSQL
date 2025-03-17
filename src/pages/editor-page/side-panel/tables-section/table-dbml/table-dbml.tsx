@@ -501,6 +501,9 @@ export const TableDBML: React.FC<TableDBMLProps> = ({ filteredTables }) => {
                 await updateTablesState(() => {
                     return tablesToUpdate;
                 });
+                console.log(
+                    `DBML DEBUG: Updated ${tablesToUpdate.length} existing tables`
+                );
             }
 
             // 3. Add new tables
@@ -511,18 +514,34 @@ export const TableDBML: React.FC<TableDBMLProps> = ({ filteredTables }) => {
                 );
             }
 
+            // Get the most up-to-date diagram with all tables after operations
+            // This is crucial for ensuring we have the correct IDs for newly added tables
+            const updatedDiagram = { ...currentDiagram };
+
+            // First, remove tables that were deleted
+            updatedDiagram.tables = (updatedDiagram.tables || []).filter(
+                (table) => !tablesToRemove.some((t) => t.id === table.id)
+            );
+
+            // Then update existing tables
+            updatedDiagram.tables = updatedDiagram.tables.map(
+                (table) =>
+                    tablesToUpdate.find((t) => t.id === table.id) || table
+            );
+
+            // Finally add new tables with their final IDs
+            // Since we've already added them to the database, use the tables as defined
+            updatedDiagram.tables = [...updatedDiagram.tables, ...tablesToAdd];
+
+            console.log(
+                `DBML DEBUG: Updated diagram now has ${updatedDiagram.tables.length} tables`
+            );
+
             // 4. For relationships, take a simpler approach: remove all relationships and add new ones
             // This is more reliable for DBML direct editing
 
             // First, create a map of table names to IDs for the updated diagram
-            const allCurrentTables = [
-                ...(currentDiagram.tables || []),
-                ...tablesToAdd,
-            ].filter(
-                (table, index, self) =>
-                    !tablesToRemove.some((t) => t.id === table.id) &&
-                    index === self.findIndex((t) => t.id === table.id)
-            );
+            const allCurrentTables = updatedDiagram.tables || [];
 
             const tableNameToId = new Map<string, string>();
             allCurrentTables.forEach((table) => {
@@ -559,7 +578,7 @@ export const TableDBML: React.FC<TableDBMLProps> = ({ filteredTables }) => {
                 const tableNameToImportedId = new Map();
 
                 // Map current tables
-                currentDiagram.tables?.forEach((table) => {
+                updatedDiagram.tables?.forEach((table) => {
                     tableNameToCurrentId.set(table.name, table.id);
                 });
 
@@ -636,11 +655,11 @@ export const TableDBML: React.FC<TableDBMLProps> = ({ filteredTables }) => {
 
                             // Find corresponding fields in current tables by name
                             const currentSourceTable =
-                                currentDiagram.tables?.find(
+                                updatedDiagram.tables?.find(
                                     (t) => t.id === currentSourceTableId
                                 );
                             const currentTargetTable =
-                                currentDiagram.tables?.find(
+                                updatedDiagram.tables?.find(
                                     (t) => t.id === currentTargetTableId
                                 );
 
@@ -751,7 +770,7 @@ export const TableDBML: React.FC<TableDBMLProps> = ({ filteredTables }) => {
                 exportBaseSQL(
                     {
                         ...currentDiagram,
-                        tables: allCurrentTables,
+                        tables: updatedDiagram.tables,
                         // Include all current relationships, both existing and newly added
                         relationships: [
                             ...(currentDiagram.relationships || []).filter(
