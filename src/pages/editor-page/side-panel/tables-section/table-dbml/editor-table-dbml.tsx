@@ -109,7 +109,6 @@ export const EditorTableDBML: React.FC<TableDBMLProps> = ({
     const [isDirty, setIsDirty] = useState(false);
     const monacoInstance = useMonaco();
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
-    const applyButtonRef = useRef<HTMLButtonElement>(null);
     const operatingSystem = useMemo(() => getOperatingSystem(), []);
 
     // Local storage key for auto-saving DBML content
@@ -1058,24 +1057,6 @@ export const EditorTableDBML: React.FC<TableDBMLProps> = ({
                 description,
                 variant: 'default',
             });
-
-            // After successful application, switch back to read-only mode
-            if (toggleEditMode) {
-                setTimeout(() => {
-                    // Switch to read-only mode after a small delay to ensure UI is updated
-                    console.log(
-                        'DBML DEBUG: Switching to read-only mode after successful changes'
-                    );
-                    toggleEditMode();
-
-                    toast({
-                        title: 'Edit Mode Disabled',
-                        description:
-                            'The DBML editor has been switched to read-only mode after successful changes.',
-                        variant: 'default',
-                    });
-                }, 1000);
-            }
         } catch (e) {
             console.error('Error applying DBML changes:', e);
             toast({
@@ -1097,46 +1078,10 @@ export const EditorTableDBML: React.FC<TableDBMLProps> = ({
         toast,
         currentDiagramVersion,
         dbmlStorageKey,
-        toggleEditMode,
     ]);
 
     // Add global hotkey for applying changes
-    useHotkeys(
-        operatingSystem === 'mac' ? 'meta+enter' : 'ctrl+enter',
-        (event) => {
-            event.preventDefault();
-            console.log(
-                'DBML DEBUG: Global hotkey Cmd+Enter / Ctrl+Enter pressed'
-            );
-
-            // Check if we can apply changes
-            if (isDirty && !dbmlError && applyButtonRef.current) {
-                console.log(
-                    'DBML DEBUG: Triggering apply changes via global hotkey'
-                );
-                applyButtonRef.current.click();
-            } else if (dbmlError) {
-                toast({
-                    title: 'DBML Error',
-                    description: 'Please fix errors before applying changes',
-                    variant: 'destructive',
-                });
-            } else if (!isDirty) {
-                toast({
-                    title: 'No Changes',
-                    description: 'There are no changes to apply',
-                    variant: 'default',
-                });
-            }
-        },
-        {
-            enableOnFormTags: ['TEXTAREA'],
-            preventDefault: true,
-        },
-        [isDirty, dbmlError, applyButtonRef, toast]
-    );
-
-    // Add a hotkey to handle Cmd+E for toggling edit mode within the editor
+    // Only keep the Cmd+E / Ctrl+E hotkey for toggling edit mode
     useHotkeys(
         operatingSystem === 'mac' ? 'meta+e' : 'ctrl+e',
         (event) => {
@@ -1183,40 +1128,8 @@ export const EditorTableDBML: React.FC<TableDBMLProps> = ({
                     }
                 }
             );
-
-            // Editor-specific key binding for Cmd+Enter (keeping this as a backup)
-            editor.addCommand(
-                // Monaco key codes for Cmd+Enter or Ctrl+Enter
-                monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
-                () => {
-                    console.log(
-                        `DBML DEBUG: Editor Cmd+Enter pressed, isDirty=${isDirty}, hasError=${!!dbmlError}`
-                    );
-
-                    // Simply click the Apply Changes button if it's available and not disabled
-                    if (isDirty && !dbmlError && applyButtonRef.current) {
-                        console.log(
-                            'DBML DEBUG: Clicking Apply Changes button via editor shortcut'
-                        );
-                        applyButtonRef.current.click();
-                    } else if (dbmlError) {
-                        toast({
-                            title: 'DBML Error',
-                            description:
-                                'Please fix errors before applying changes',
-                            variant: 'destructive',
-                        });
-                    } else if (!isDirty) {
-                        toast({
-                            title: 'No Changes',
-                            description: 'There are no changes to apply',
-                            variant: 'default',
-                        });
-                    }
-                }
-            );
         },
-        [isDirty, dbmlError, toast, originalDbmlContent, toggleEditMode]
+        [originalDbmlContent, toggleEditMode]
     );
 
     // Set error markers in editor - add this back
@@ -1260,8 +1173,7 @@ export const EditorTableDBML: React.FC<TableDBMLProps> = ({
             <div className="mb-2 rounded bg-blue-100 p-2 text-sm text-blue-700 dark:bg-blue-900/20 dark:text-blue-300">
                 <strong>Interactive DBML Editor (beta)</strong>: Edit your
                 diagram directly using DBML syntax. Changes won't be applied
-                until you click "Apply Changes" or press <kbd>Cmd+Enter</kbd> (
-                <kbd>Ctrl+Enter</kbd> on Windows).
+                until you click "Apply Changes".
             </div>
 
             {dbmlError && (
@@ -1297,12 +1209,10 @@ export const EditorTableDBML: React.FC<TableDBMLProps> = ({
                         Discard Changes
                     </Button>
                     <Button
-                        ref={applyButtonRef}
                         variant="default"
                         onClick={applyDBMLChanges}
                         disabled={!!dbmlError}
-                        title="Apply changes (⌘+Enter / Ctrl+Enter)"
-                        aria-label="Apply changes, can also use Command+Enter or Control+Enter"
+                        aria-label="Apply changes"
                     >
                         Apply Changes
                     </Button>
