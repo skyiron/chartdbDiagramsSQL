@@ -1079,6 +1079,8 @@ export const TableDBML: React.FC<TableDBMLProps> = ({ filteredTables }) => {
                         variant="default"
                         onClick={applyDBMLChanges}
                         disabled={!!dbmlError}
+                        title="Apply changes (⌘+Enter / Ctrl+Enter)"
+                        aria-label="Apply changes, can also use Command+Enter or Control+Enter"
                     >
                         Apply Changes
                     </Button>
