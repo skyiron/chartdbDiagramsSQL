@@ -118,6 +118,48 @@ export const EditorTableDBML: React.FC<TableDBMLProps> = ({
     // Keep track of the original generated DBML for comparison
     const [originalDbmlContent, setOriginalDbmlContent] = useState<string>('');
 
+    // Track diagram version for change detection
+    const [diagramVersion, setDiagramVersion] = useState<string>('');
+    const lastProcessedDiagramRef = useRef<string>('');
+
+    // Generate a diagram version string to detect changes
+    const currentDiagramVersion = useMemo(() => {
+        // Create a version string based on tables, fields, and relationships
+        const tablesVersion = currentDiagram.tables
+            ?.map((table) => {
+                // Include field details to detect field-level changes
+                const fieldsHash = table.fields
+                    .map(
+                        (field) =>
+                            `${field.id}-${field.name}-${field.type}-${field.primaryKey ? 1 : 0}-${field.nullable ? 1 : 0}`
+                    )
+                    .join(',');
+
+                // Include indexes to detect index changes
+                const indexesHash = (table.indexes || [])
+                    .map(
+                        (index) =>
+                            `${index.id}-${index.name}-${index.unique ? 1 : 0}`
+                    )
+                    .join(',');
+
+                return `${table.id}-${table.name}-${table.schema}-${fieldsHash}-${indexesHash}-${
+                    table.createdAt || 0
+                }`;
+            })
+            .join('|');
+
+        const relationshipsVersion = currentDiagram.relationships
+            ?.map((rel) => {
+                return `${rel.id}-${rel.sourceTableId}-${rel.targetTableId}-${rel.sourceFieldId}-${rel.targetFieldId}-${
+                    rel.createdAt || 0
+                }`;
+            })
+            .join('|');
+
+        return `${tablesVersion}::${relationshipsVersion}`;
+    }, [currentDiagram]);
+
     // Generate initial DBML from the diagram
     const generateDBML = useMemo(() => {
         const filteredDiagram: Diagram = {
@@ -177,8 +219,22 @@ export const EditorTableDBML: React.FC<TableDBMLProps> = ({
 
     // Load content from localStorage or generate new DBML on first render
     useEffect(() => {
+        // Set initial diagram version
+        setDiagramVersion(currentDiagramVersion);
+        lastProcessedDiagramRef.current = currentDiagramVersion;
+
+        console.log(
+            'DBML DEBUG: Initializing editor with current diagram state'
+        );
+
         const savedContent = localStorage.getItem(dbmlStorageKey);
+
         if (savedContent) {
+            // We have saved content, but we need to check if it's still valid
+            console.log('DBML DEBUG: Found saved DBML content');
+
+            // For now, we'll use it, but we could enhance this to store
+            // diagram version hash alongside the content for validation
             setDbmlContent(savedContent);
             setIsDirty(true);
 
@@ -190,11 +246,12 @@ export const EditorTableDBML: React.FC<TableDBMLProps> = ({
                 variant: 'default',
             });
         } else {
+            console.log('DBML DEBUG: No saved content, generating fresh DBML');
             const newContent = generateDBML;
             setDbmlContent(newContent);
             setOriginalDbmlContent(newContent); // Store original content
         }
-    }, [generateDBML, dbmlStorageKey, toast]);
+    }, [generateDBML, dbmlStorageKey, toast, currentDiagramVersion]);
 
     // Update the editor content when the diagram changes, but only if not dirty
     useEffect(() => {
@@ -230,6 +287,72 @@ export const EditorTableDBML: React.FC<TableDBMLProps> = ({
             }
         };
     }, [isDirty, dbmlStorageKey]);
+
+    // Handle external diagram changes
+    useEffect(() => {
+        // Skip on first render since we handle it in initialization
+        if (!diagramVersion || diagramVersion === currentDiagramVersion) {
+            return;
+        }
+
+        // If the diagram has changed, update even if dirty
+        console.log('DBML DEBUG: External diagram changes detected');
+
+        // If there are unsaved changes, notify the user
+        if (isDirty) {
+            console.log(
+                'DBML DEBUG: Unsaved changes discarded due to external diagram changes'
+            );
+            toast({
+                title: 'Diagram Updated',
+                description:
+                    'External changes to the diagram have been detected. Your unsaved DBML edits have been discarded.',
+                variant: 'default',
+            });
+        }
+
+        // Switch back to read-only mode if in edit mode
+        if (toggleEditMode) {
+            console.log(
+                'DBML DEBUG: Switching back to read-only mode due to external changes'
+            );
+            toggleEditMode();
+
+            // Show an additional notification about the mode switch
+            toast({
+                title: 'Edit Mode Disabled',
+                description:
+                    'Due to external diagram changes, the DBML editor has been switched to read-only mode.',
+                variant: 'default',
+            });
+        }
+
+        // Reset editor with updated content
+        setDbmlContent(generateDBML);
+        setOriginalDbmlContent(generateDBML);
+        setIsDirty(false);
+        setDbmlError(null);
+
+        // Update editor content if editor is mounted
+        if (editorRef.current) {
+            editorRef.current.setValue(generateDBML);
+        }
+
+        // Clear any saved content
+        localStorage.removeItem(dbmlStorageKey);
+
+        // Update version tracker
+        setDiagramVersion(currentDiagramVersion);
+        lastProcessedDiagramRef.current = currentDiagramVersion;
+    }, [
+        currentDiagramVersion,
+        diagramVersion,
+        generateDBML,
+        isDirty,
+        toast,
+        dbmlStorageKey,
+        toggleEditMode,
+    ]);
 
     // Validate DBML syntax as the user types
     const validateDBML = useCallback((content: string | undefined) => {
@@ -819,7 +942,7 @@ export const EditorTableDBML: React.FC<TableDBMLProps> = ({
 
             setIsDirty(false);
 
-            // Force regeneration of DBML to include the relationships
+            // After all changes are applied, regenerate the DBML to show the current state
             const updatedDBML = await importer.import(
                 exportBaseSQL(
                     {
@@ -841,11 +964,20 @@ export const EditorTableDBML: React.FC<TableDBMLProps> = ({
                 databaseTypeToImportFormat(currentDiagram.databaseType)
             );
 
-            // Update the DBML content with the regenerated version that includes relationships
+            // Reset the editor state with the updated content
             setDbmlContent(updatedDBML);
+            setOriginalDbmlContent(updatedDBML);
+            setIsDirty(false);
+            setDbmlError(null);
+
+            // Clear any saved content
+            localStorage.removeItem(dbmlStorageKey);
+
+            // Update the diagram version
+            setDiagramVersion(currentDiagramVersion);
+            lastProcessedDiagramRef.current = currentDiagramVersion;
 
             // Count tables that were truly modified vs just preserved (same structure)
-            // We need to check if any fields actually changed in the "updated" tables
             const tablesKeptUnchanged = tablesToUpdate.filter(
                 (updatedTable) => {
                     const originalTable = currentDiagram.tables?.find(
@@ -926,6 +1058,24 @@ export const EditorTableDBML: React.FC<TableDBMLProps> = ({
                 description,
                 variant: 'default',
             });
+
+            // After successful application, switch back to read-only mode
+            if (toggleEditMode) {
+                setTimeout(() => {
+                    // Switch to read-only mode after a small delay to ensure UI is updated
+                    console.log(
+                        'DBML DEBUG: Switching to read-only mode after successful changes'
+                    );
+                    toggleEditMode();
+
+                    toast({
+                        title: 'Edit Mode Disabled',
+                        description:
+                            'The DBML editor has been switched to read-only mode after successful changes.',
+                        variant: 'default',
+                    });
+                }, 1000);
+            }
         } catch (e) {
             console.error('Error applying DBML changes:', e);
             toast({
@@ -945,6 +1095,9 @@ export const EditorTableDBML: React.FC<TableDBMLProps> = ({
         updateTablesState,
         addRelationships,
         toast,
+        currentDiagramVersion,
+        dbmlStorageKey,
+        toggleEditMode,
     ]);
 
     // Add global hotkey for applying changes
