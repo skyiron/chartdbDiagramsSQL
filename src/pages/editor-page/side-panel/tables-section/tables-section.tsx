@@ -1,7 +1,7 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { TableList } from './table-list/table-list';
 import { Button } from '@/components/button/button';
-import { Table, List, X, Code } from 'lucide-react';
+import { Table, List, X, Code, Edit, Eye } from 'lucide-react';
 import { Input } from '@/components/input/input';
 import type { DBTable } from '@/lib/domain/db-table';
 import { shouldShowTablesBySchemaFilter } from '@/lib/domain/db-table';
@@ -18,6 +18,7 @@ import {
 import { useViewport } from '@xyflow/react';
 import { useDialog } from '@/hooks/use-dialog';
 import { TableDBML } from './table-dbml/table-dbml';
+import { EditorTableDBML } from './table-dbml/editor-table-dbml';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { getOperatingSystem } from '@/lib/utils';
 
@@ -31,7 +32,33 @@ export const TablesSection: React.FC<TablesSectionProps> = () => {
     const { openTableFromSidebar } = useLayout();
     const [filterText, setFilterText] = React.useState('');
     const [showDBML, setShowDBML] = useState(false);
+    const [dbmlEditMode, setDbmlEditMode] = useState(false);
     const filterInputRef = React.useRef<HTMLInputElement>(null);
+
+    // Reset filter when toggling DBML view
+    const handleToggleDBML = useCallback(() => {
+        // If switching to DBML mode for the first time, clear filter
+        if (!showDBML) {
+            setFilterText('');
+        }
+        setShowDBML((prev) => !prev);
+    }, [showDBML]);
+
+    // Function to toggle edit mode - can be called from child components
+    const toggleDbmlEditMode = useCallback(() => {
+        if (showDBML) {
+            setDbmlEditMode((prev) => !prev);
+            // Clear filter when entering edit mode
+            if (!dbmlEditMode) {
+                setFilterText('');
+            }
+            return true;
+        }
+        return false;
+    }, [showDBML, setDbmlEditMode, dbmlEditMode]);
+
+    // No need to clear filter text when switching to DBML view-only mode
+    // We'll only clear it when entering edit mode (handled in toggleDbmlEditMode)
 
     const filteredTables = useMemo(() => {
         const filterTableName: (table: DBTable) => boolean = (table) =>
@@ -112,13 +139,33 @@ export const TablesSection: React.FC<TablesSectionProps> = () => {
     useHotkeys(
         operatingSystem === 'mac' ? 'meta+p' : 'ctrl+p',
         () => {
-            setShowDBML((value) => !value);
+            handleToggleDBML();
         },
         {
             preventDefault: true,
         },
-        [setShowDBML]
+        [handleToggleDBML]
     );
+
+    useHotkeys(
+        operatingSystem === 'mac' ? 'meta+e' : 'ctrl+e',
+        () => {
+            if (showDBML) {
+                setDbmlEditMode((value) => !value);
+            }
+        },
+        {
+            preventDefault: true,
+        },
+        [showDBML, setDbmlEditMode]
+    );
+
+    // Reset edit mode when toggling DBML view off
+    useEffect(() => {
+        if (!showDBML) {
+            setDbmlEditMode(false);
+        }
+    }, [showDBML]);
 
     return (
         <section
@@ -126,16 +173,14 @@ export const TablesSection: React.FC<TablesSectionProps> = () => {
             data-vaul-no-drag
         >
             <div className="flex items-center justify-between gap-4 py-1">
-                <div>
+                <div className="flex items-center gap-1">
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <span>
                                 <Button
                                     variant="ghost"
                                     className="size-8 p-0"
-                                    onClick={() =>
-                                        setShowDBML((value) => !value)
-                                    }
+                                    onClick={handleToggleDBML}
                                 >
                                     {showDBML ? (
                                         <List className="size-4" />
@@ -152,17 +197,58 @@ export const TablesSection: React.FC<TablesSectionProps> = () => {
                             {operatingSystem === 'mac' ? ' (⌘P)' : ' (Ctrl+P)'}
                         </TooltipContent>
                     </Tooltip>
+
+                    {showDBML && (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span>
+                                    <Button
+                                        variant="ghost"
+                                        className="size-8 p-0"
+                                        onClick={() =>
+                                            setDbmlEditMode((value) => !value)
+                                        }
+                                    >
+                                        {dbmlEditMode ? (
+                                            <Eye className="size-4" />
+                                        ) : (
+                                            <Edit className="size-4" />
+                                        )}
+                                    </Button>
+                                </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                {dbmlEditMode
+                                    ? t('side_panel.tables_section.view_mode')
+                                    : t('side_panel.tables_section.edit_mode')}
+                                {operatingSystem === 'mac'
+                                    ? ' (⌘E)'
+                                    : ' (Ctrl+E)'}
+                            </TooltipContent>
+                        </Tooltip>
+                    )}
                 </div>
-                <div className="flex-1">
-                    <Input
-                        ref={filterInputRef}
-                        type="text"
-                        placeholder={t('side_panel.tables_section.filter')}
-                        className="h-8 w-full focus-visible:ring-0"
-                        value={filterText}
-                        onChange={(e) => setFilterText(e.target.value)}
-                    />
-                </div>
+
+                {/* Show filter input when not in DBML edit mode */}
+                {!dbmlEditMode ? (
+                    <div className="flex-1">
+                        <Input
+                            ref={filterInputRef}
+                            type="text"
+                            placeholder={t('side_panel.tables_section.filter')}
+                            className="h-8 w-full focus-visible:ring-0"
+                            value={filterText}
+                            onChange={(e) => setFilterText(e.target.value)}
+                        />
+                    </div>
+                ) : (
+                    <div className="flex flex-1 items-center justify-center">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            {t('side_panel.tables_section.edit_mode')}
+                        </div>
+                    </div>
+                )}
+
                 <Button
                     variant="secondary"
                     className="h-8 p-2 text-xs"
@@ -174,7 +260,17 @@ export const TablesSection: React.FC<TablesSectionProps> = () => {
             </div>
             <div className="flex flex-1 flex-col overflow-hidden">
                 {showDBML ? (
-                    <TableDBML filteredTables={filteredTables} />
+                    dbmlEditMode ? (
+                        <EditorTableDBML
+                            filteredTables={filteredTables}
+                            toggleEditMode={toggleDbmlEditMode}
+                        />
+                    ) : (
+                        <TableDBML
+                            filteredTables={filteredTables}
+                            toggleEditMode={toggleDbmlEditMode}
+                        />
+                    )
                 ) : (
                     <ScrollArea className="h-full">
                         {tables.length === 0 ? (

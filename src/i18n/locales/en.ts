@@ -128,6 +128,8 @@ export const en = {
                 no_results: 'No tables found matching your filter.',
                 show_list: 'Show Table List',
                 show_dbml: 'Show DBML Editor',
+                edit_mode: 'Edit DBML',
+                view_mode: 'View-only Mode',
 
                 table: {
                     fields: 'Fields',
