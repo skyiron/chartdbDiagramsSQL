@@ -495,6 +495,14 @@ export const EditorTableDBML: React.FC<TableDBMLProps> = ({
                     const tableKey = `${importedTable.schema || ''}.${importedTable.name}`;
                     const existingTable = currentTableMap.get(tableKey);
 
+                    // Debug: check if imported table has primary key fields
+                    console.log(
+                        `DBML DEBUG: Table ${importedTable.name} field PK status:`,
+                        importedTable.fields.map(
+                            (f) => `${f.name}: PK=${f.primaryKey}`
+                        )
+                    );
+
                     if (existingTable) {
                         // Preserve position, color, and ID for existing tables
                         const tableWithPreservedIds = {
@@ -511,11 +519,40 @@ export const EditorTableDBML: React.FC<TableDBMLProps> = ({
                                         existingTable.fields.find(
                                             (f) => f.name === importedField.name
                                         );
+
+                                    // Debug logging for field primary key status
                                     if (existingField) {
-                                        return {
+                                        console.log(
+                                            `DBML DEBUG: Field mapping for ${importedField.name}:`,
+                                            `Existing PK=${existingField.primaryKey},`,
+                                            `Imported PK=${importedField.primaryKey}`
+                                        );
+
+                                        // Explicitly log when a PK is being added to a field
+                                        if (
+                                            importedField.primaryKey &&
+                                            !existingField.primaryKey
+                                        ) {
+                                            console.log(
+                                                `DBML DEBUG: Adding PRIMARY KEY to ${importedField.name}`
+                                            );
+                                        }
+                                    }
+
+                                    if (existingField) {
+                                        // Ensure all field properties including primaryKey are properly
+                                        // carried over from the imported field, only preserving the ID
+                                        const updatedField = {
                                             ...importedField,
                                             id: existingField.id,
                                         };
+
+                                        // Extra validation to ensure primaryKey is set correctly
+                                        if (importedField.primaryKey) {
+                                            updatedField.primaryKey = true;
+                                        }
+
+                                        return updatedField;
                                     }
                                     // Use the new ID for new fields
                                     return importedField;
@@ -925,6 +962,18 @@ export const EditorTableDBML: React.FC<TableDBMLProps> = ({
                     ),
                     databaseTypeToImportFormat(currentDiagram.databaseType)
                 );
+
+                // Validate that primary keys were properly applied
+                console.log(`DBML DEBUG: Validating primary keys after update`);
+                updatedDiagram.tables.forEach((table) => {
+                    const pkFields = table.fields.filter(
+                        (field) => field.primaryKey
+                    );
+                    console.log(
+                        `DBML DEBUG: Table ${table.name} has ${pkFields.length} PK fields:`,
+                        pkFields.map((f) => f.name).join(', ')
+                    );
+                });
 
                 // Don't update the editor content if the user is actively editing
                 // Just silently update the state

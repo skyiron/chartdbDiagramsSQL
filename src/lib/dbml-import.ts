@@ -185,15 +185,29 @@ export const importDBMLToDiagram = async (
             const tableSpacing = 300;
 
             // Create fields first so we have their IDs
-            const fields = table.fields.map((field) => ({
-                id: generateId(),
-                name: field.name.replace(/['"]/g, ''),
-                type: mapDBMLTypeToGenericType(field.type.type_name),
-                nullable: !field.not_null,
-                primaryKey: field.pk || false,
-                unique: field.unique || false,
-                createdAt: Date.now(),
-            }));
+            const fields = table.fields.map((field) => {
+                // Debug primary key status
+                console.log(
+                    `DBML Import: Field ${field.name} in table ${table.name}: pk=${field.pk}`
+                );
+
+                // Ensure pk flag is correctly interpreted as boolean
+                // It may come as undefined, null, or various truthy/falsy values
+                let isPrimaryKey = false;
+                if (field.pk !== undefined && field.pk !== null) {
+                    isPrimaryKey = Boolean(field.pk);
+                }
+
+                return {
+                    id: generateId(),
+                    name: field.name.replace(/['"]/g, ''),
+                    type: mapDBMLTypeToGenericType(field.type.type_name),
+                    nullable: !field.not_null,
+                    primaryKey: isPrimaryKey,
+                    unique: field.unique || false,
+                    createdAt: Date.now(),
+                };
+            });
 
             // Convert DBML indexes to ChartDB indexes
             const indexes =
